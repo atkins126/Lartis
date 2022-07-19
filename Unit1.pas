@@ -35,10 +35,18 @@ const
   appname: String = 'Lartis';
   pypath: String = 'python';
   pyver: String = '3.9';
+  pyexe: String = 'python.exe';
+
+function EscapeBackslashForPython(const AStr: String): String;
 
 implementation
 
 {$R *.fmx}
+
+function EscapeBackslashForPython(const AStr: String): String;
+begin
+  Result := StringReplace(AStr, '\', '\\', [rfIgnoreCase, rfReplaceAll]);
+end;
 
 procedure TForm1.Log(const AMsg: String);
 begin
@@ -69,41 +77,72 @@ var
   PythonCode: TStringList;
 begin
   PyCleanOnExit := True;
-  AppHome := IncludeTrailingPathDelimiter(System.IOUtils.TPath.GetHomePath) + appname;
-  //  + System.IOUtils.TPath.DirectorySeparatorChar;
+  // Wipe Python when finished
+  AppHome := IncludeTrailingPathDelimiter(System.IOUtils.TPath.GetHomePath) + appname;  //  + System.IOUtils.TPath.DirectorySeparatorChar;
+  // System agnostic path for data files + Python
   if not DirectoryExists(AppHome) then
     ForceDirectories(AppHome);
 
   PyIO := TPythonInputOutput.Create(Self);
   PyIO.UnicodeIO := True;
   PyIO.OnSendUniData := PyIOSendUniData;
+  // Python IO handler
 
   PyEng := TPythonEngine.Create(Self);
   PyEng.IO := PyIO;
   PyEng.RedirectIO := True;
+  // Python Engine
 
   PyEnv := TPyEmbeddedResEnvironment39.Create(Self);
   PyEnv.PythonEngine := PyEng;
   PyEnv.PythonVersion := pyver;
+  // Python Environment
 
   PyEnv.AfterDeactivate := PyEnvAfterDeactivate;
+  // Tidy up on exit (clean Python for testing)
 
   Log('Calling Setup');
 
   PyEnv.EnvironmentPath := AppHome + System.IOUtils.TPath.DirectorySeparatorChar + pypath;
   PyEng.DllPath := PyEnv.EnvironmentPath;
   PyEnv.Setup(pyver);
+  // Install Python if required
+
 
   Log('Env Path = ' + PyEnv.EnvironmentPath);
   Log('Eng Lib = ' + PyEng.DllName);
   Log('Eng Libpath = ' + PyEng.DllPath);
   Log('Calling Activate');
+  // Show some importanst stuff
 
   PyEnv.Activate(pyver);
+  // Activate Python
+
   PythonCode := TStringList.Create;
-  PythonCode.Add('print("import sys")');
-  PythonCode.Add('print("Hello World ", sys.version)');
-  PyEng.ExecStrings(PythonCode);
+  PythonCode.Add('import sys');
+  PythonCode.Add('print("Hello World from ", sys.version)');
+  PythonCode.Add('print("Python =", sys.executable)');
+  // A little script to check we're working as expected
+
+  try
+    MaskFPUExceptions(True);
+    PyEng.ExecStrings(PythonCode);
+  except
+    on E: EPyException do
+      begin
+        Log('Unhandled Python Exception');
+        Log('Class : ' + E.ClassName);
+        Log('Error : ' + E.Message);
+      end;
+    on E: Exception do
+      begin
+        Log('Unhandled Exception');
+        Log('Class : ' + E.ClassName);
+        Log('Error : ' + E.Message);
+      end;
+  end;
+
+  MaskFPUExceptions(False);
 
   Log('Done');
 end;
